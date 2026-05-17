@@ -2,6 +2,7 @@
 """Fetch recruiting clinical trials from ClinicalTrials.gov API v2 and ingest into ChromaDB."""
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -14,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 load_dotenv()
 
-from langchain_openai import OpenAIEmbeddings
+from langchain_voyageai import VoyageAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from backend.data.ingest_trials import get_chroma_client, get_or_create_collection
@@ -109,8 +110,11 @@ def parse_trial(study: dict) -> dict | None:
 
 
 def main():
-    print("Initializing embeddings (OpenAI text-embedding-3-small)...")
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    print("Initializing embeddings (Voyage AI voyage-3-large)...")
+    embeddings = VoyageAIEmbeddings(
+        model="voyage-3-large",
+        voyage_api_key=os.environ.get("VOYAGE_API_KEY"),
+    )
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=600,

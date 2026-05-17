@@ -1,10 +1,21 @@
 """Retrieve candidate clinical trials from ChromaDB using semantic search."""
 
 import json
-from typing import Optional
+import os
+from functools import lru_cache
+
+from langchain_voyageai import VoyageAIEmbeddings
 
 from backend.schemas.models import PatientProfile, TrialCandidate
 from backend.data.ingest_trials import get_chroma_client, COLLECTION_NAME
+
+
+@lru_cache(maxsize=1)
+def _get_embeddings() -> VoyageAIEmbeddings:
+    return VoyageAIEmbeddings(
+        model="voyage-3-large",
+        voyage_api_key=os.environ.get("VOYAGE_API_KEY"),
+    )
 
 
 def retrieve_trials(
@@ -29,9 +40,10 @@ def retrieve_trials(
         )
 
     query = _build_query(profile, broad=broad)
+    query_vector = _get_embeddings().embed_query(query)
 
     results = collection.query(
-        query_texts=[query],
+        query_embeddings=[query_vector],
         n_results=min(top_k, collection.count()),
         include=["documents", "metadatas", "distances"],
     )
