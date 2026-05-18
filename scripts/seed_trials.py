@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
-"""Fetch recruiting clinical trials from ClinicalTrials.gov API v2 and ingest into ChromaDB."""
+"""Fetch trials from ClinicalTrials.gov and ingest directly into ChromaDB.
+No external embedding API needed — ChromaDB uses built-in all-MiniLM-L6-v2.
+"""
 
 import json
-import os
 import sys
 import time
 from pathlib import Path
 
 import httpx
 
-# Allow running from repo root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from langchain_voyageai import VoyageAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-from backend.data.ingest_trials import get_chroma_client, get_or_create_collection
+from backend.data.ingest_trials import get_chroma_client, get_or_create_collection, COLLECTION_NAME
 
 BASE_URL = "https://clinicaltrials.gov/api/v2/studies"
 PARAMS_BASE = {
@@ -35,15 +33,12 @@ def fetch_page(page_token: str | None = None) -> tuple[list[dict], str | None]:
     params = dict(PARAMS_BASE)
     if page_token:
         params["pageToken"] = page_token
-
     for attempt in range(4):
         try:
-            response = httpx.get(BASE_URL, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            studies = data.get("studies", [])
-            next_token = data.get("nextPageToken")
-            return studies, next_token
+            r = httpx.get(BASE_URL, params=params, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            return data.get("studies", []), data.get("nextPageToken")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 wait = 2 ** (attempt + 1)
@@ -56,7 +51,6 @@ def fetch_page(page_token: str | None = None) -> tuple[list[dict], str | None]:
             print(f"  Request error: {e}")
             if attempt < 3:
                 time.sleep(2 ** attempt)
-
     return [], None
 
 
@@ -64,44 +58,26 @@ def parse_trial(study: dict) -> dict | None:
     try:
         proto = study.get("protocolSection", {})
         id_mod = proto.get("identificationModule", {})
-        status_mod = proto.get("statusModule", {})
-        sponsor_mod = proto.get("sponsorCollaboratorsModule", {})
-        cond_mod = proto.get("conditionsModule", {})
-        design_mod = proto.get("designModule", {})
-        elig_mod = proto.get("eligibilityModule", {})
-        contacts_mod = proto.get("contactsLocationsModule", {})
-
         nct_id = id_mod.get("nctId", "")
         if not nct_id:
             return None
-
-        title = id_mod.get("briefTitle", "Unknown")
-        phase = None
-        phases = design_mod.get("phases", [])
-        if phases:
-            phase = phases[0].replace("PHASE", "Phase ").replace("_", "/")
-
-        sponsor = sponsor_mod.get("leadSponsor", {}).get("name")
-        conditions = cond_mod.get("conditions", [])
-        eligibility_criteria = elig_mod.get("eligibilityCriteria", "").strip()
-
-        if not eligibility_criteria:
+        eligibility = proto.get("eligibilityModule", {}).get("eligibilityCriteria", "").strip()
+        if not eligibility:
             return None
-
+        phases = proto.get("designModule", {}).get("phases", [])
+        phase = phases[0].replace("PHASE", "Phase ").replace("_", "/") if phases else None
         locations = []
-        for loc in contacts_mod.get("locations", [])[:5]:
-            city = loc.get("city", "")
-            country = loc.get("country", "")
+        for loc in proto.get("contactsLocationsModule", {}).get("locations", [])[:5]:
+            city, country = loc.get("city", ""), loc.get("country", "")
             if city or country:
                 locations.append(f"{city}, {country}".strip(", "))
-
         return {
             "nct_id": nct_id,
-            "title": title,
+            "title": id_mod.get("briefTitle", "Unknown"),
             "phase": phase,
-            "sponsor": sponsor,
-            "conditions": conditions,
-            "eligibility_criteria": eligibility_criteria,
+            "sponsor": proto.get("sponsorCollaboratorsModule", {}).get("leadSponsor", {}).get("name"),
+            "conditions": proto.get("conditionsModule", {}).get("conditions", []),
+            "eligibility_criteria": eligibility,
             "locations": locations,
         }
     except Exception as e:
@@ -110,12 +86,6 @@ def parse_trial(study: dict) -> dict | None:
 
 
 def main():
-    print("Initializing embeddings (Voyage AI voyage-3-large)...")
-    embeddings = VoyageAIEmbeddings(
-        model="voyage-3-large",
-        voyage_api_key=os.environ.get("VOYAGE_API_KEY"),
-    )
-
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=600,
         chunk_overlap=80,
@@ -123,53 +93,35 @@ def main():
     )
 
     client = get_chroma_client()
+    try:
+        client.delete_collection(COLLECTION_NAME)
+    except Exception:
+        pass
     collection = get_or_create_collection(client)
-
-    existing_count = collection.count()
-    if existing_count > 0:
-        print(f"Collection already has {existing_count} chunks. Clearing for fresh ingest...")
-        client.delete_collection("clinical_trials")
-        from backend.data.ingest_trials import COLLECTION_NAME
-        collection = client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
 
     all_trials: list[dict] = []
     page_token = None
 
     for page_num in range(1, MAX_PAGES + 1):
-        print(f"\nFetching page {page_num}/{MAX_PAGES}...")
+        print(f"\nFetching page {page_num}/{MAX_PAGES} from ClinicalTrials.gov...")
         studies, page_token = fetch_page(page_token)
-
         for study in studies:
             trial = parse_trial(study)
             if trial:
                 all_trials.append(trial)
-
-        print(f"  Retrieved {len(studies)} studies, parsed {len(all_trials)} valid so far")
+        print(f"  {len(studies)} studies fetched, {len(all_trials)} valid so far")
         time.sleep(0.5)
-
         if not page_token:
-            print("  No more pages available")
             break
 
     print(f"\nTotal valid trials: {len(all_trials)}")
-    print("Chunking eligibility criteria and embedding...")
+    print("Chunking and embedding (ChromaDB built-in, no API key needed)...")
 
-    batch_docs: list[str] = []
-    batch_metas: list[dict] = []
-    batch_ids: list[str] = []
-    batch_embeddings: list[list[float]] = []
-
-    ingested = 0
-    EMBED_BATCH = 50
+    batch_docs, batch_metas, batch_ids = [], [], []
+    BATCH = 100
 
     for i, trial in enumerate(all_trials):
-        chunks = splitter.split_text(trial["eligibility_criteria"])
-        if not chunks:
-            chunks = [trial["eligibility_criteria"][:600]]
-
+        chunks = splitter.split_text(trial["eligibility_criteria"]) or [trial["eligibility_criteria"][:600]]
         meta = {
             "nct_id": trial["nct_id"],
             "title": trial["title"][:500],
@@ -178,42 +130,22 @@ def main():
             "conditions": json.dumps(trial["conditions"][:10]),
             "locations": json.dumps(trial["locations"][:5]),
         }
-
-        for chunk_idx, chunk in enumerate(chunks):
-            doc_id = f"{trial['nct_id']}_chunk_{chunk_idx}"
+        for j, chunk in enumerate(chunks):
             batch_docs.append(chunk)
             batch_metas.append(meta)
-            batch_ids.append(doc_id)
+            batch_ids.append(f"{trial['nct_id']}_chunk_{j}")
 
-            if len(batch_docs) >= EMBED_BATCH:
-                vecs = embeddings.embed_documents(batch_docs)
-                collection.add(
-                    documents=batch_docs,
-                    embeddings=vecs,
-                    metadatas=batch_metas,
-                    ids=batch_ids,
-                )
-                ingested += len(batch_docs)
-                batch_docs, batch_metas, batch_ids = [], [], []
+        if len(batch_docs) >= BATCH:
+            collection.add(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
+            batch_docs, batch_metas, batch_ids = [], [], []
 
-        print(f"  Processed trial {i + 1}/{len(all_trials)}: {trial['nct_id']}")
+        print(f"  Processed {i + 1}/{len(all_trials)}: {trial['nct_id']}")
 
     if batch_docs:
-        vecs = embeddings.embed_documents(batch_docs)
-        collection.add(
-            documents=batch_docs,
-            embeddings=vecs,
-            metadatas=batch_metas,
-            ids=batch_ids,
-        )
-        ingested += len(batch_docs)
+        collection.add(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
 
-    final_count = collection.count()
-    print(f"\nIngestion complete!")
-    print(f"  Trials processed: {len(all_trials)}")
-    print(f"  Chunks stored: {final_count}")
-    print(f"  ChromaDB path: backend/data/chroma_store/")
-    print("\nReady to run: uvicorn backend.api.main:app --reload")
+    print(f"\nDone! {collection.count()} chunks stored in ChromaDB.")
+    print("Ready: uvicorn backend.api.main:app --reload")
 
 
 if __name__ == "__main__":

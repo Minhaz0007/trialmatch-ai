@@ -1,21 +1,9 @@
 """Retrieve candidate clinical trials from ChromaDB using semantic search."""
 
 import json
-import os
-from functools import lru_cache
-
-from langchain_voyageai import VoyageAIEmbeddings
 
 from backend.schemas.models import PatientProfile, TrialCandidate
-from backend.data.ingest_trials import get_chroma_client, COLLECTION_NAME
-
-
-@lru_cache(maxsize=1)
-def _get_embeddings() -> VoyageAIEmbeddings:
-    return VoyageAIEmbeddings(
-        model="voyage-3-large",
-        voyage_api_key=os.environ.get("VOYAGE_API_KEY"),
-    )
+from backend.data.ingest_trials import get_chroma_client, get_or_create_collection, COLLECTION_NAME
 
 
 def retrieve_trials(
@@ -30,20 +18,20 @@ def retrieve_trials(
     except Exception:
         raise RuntimeError(
             "ChromaDB collection 'clinical_trials' not found. "
-            "Run `python scripts/seed_trials.py` to populate the vector store."
+            "Upload a trials JSON file via the Seed Database page."
         )
 
     if collection.count() == 0:
         raise RuntimeError(
             "ChromaDB collection is empty. "
-            "Run `python scripts/seed_trials.py` to populate the vector store."
+            "Upload a trials JSON file via the Seed Database page."
         )
 
     query = _build_query(profile, broad=broad)
-    query_vector = _get_embeddings().embed_query(query)
 
+    # ChromaDB embeds the query automatically using the same DefaultEmbeddingFunction
     results = collection.query(
-        query_embeddings=[query_vector],
+        query_texts=[query],
         n_results=min(top_k, collection.count()),
         include=["documents", "metadatas", "distances"],
     )

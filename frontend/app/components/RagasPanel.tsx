@@ -9,68 +9,52 @@ interface RagasScore {
   overall_score: number;
 }
 
-interface RagasPanelProps {
-  ragas: RagasScore | null;
-}
+const METRICS = [
+  {
+    key: "context_precision" as const,
+    label: "Context Precision",
+    tooltip: "How much of the retrieved trial criteria was relevant to this decision.",
+  },
+  {
+    key: "faithfulness" as const,
+    label: "Faithfulness",
+    tooltip: "Whether the reasoning is grounded in the trial criteria without hallucination.",
+  },
+  {
+    key: "answer_relevance" as const,
+    label: "Answer Relevance",
+    tooltip: "How directly the summary answers 'Does this patient meet the criteria?'",
+  },
+];
 
-const METRIC_TOOLTIPS: Record<string, string> = {
-  "Context Precision":
-    "How much of the retrieved trial criteria text was actually relevant to the eligibility decision. High = focused retrieval.",
-  Faithfulness:
-    "Whether the eligibility reasoning is grounded in the trial criteria text without hallucination.",
-  "Answer Relevance":
-    "How directly the eligibility summary answers 'Does this patient meet the trial criteria?'",
-};
-
-function ScoreBar({
-  label,
-  value,
-}: {
-  label: string;
-  value: number;
-}) {
-  const [showTooltip, setShowTooltip] = useState(false);
+function MetricBar({ label, value, tooltip }: { label: string; value: number; tooltip: string }) {
+  const [show, setShow] = useState(false);
   const pct = Math.round(value * 100);
-
-  const color =
-    pct >= 80
-      ? "bg-green-500"
-      : pct >= 60
-      ? "bg-amber-500"
-      : "bg-red-500";
-
-  const textColor =
-    pct >= 80
-      ? "text-green-700"
-      : pct >= 60
-      ? "text-amber-700"
-      : "text-red-700";
+  const color = pct >= 80 ? "bg-green-500" : pct >= 60 ? "bg-amber-400" : "bg-red-400";
+  const textColor = pct >= 80 ? "text-green-700" : pct >= 60 ? "text-amber-700" : "text-red-600";
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 relative">
-          <span className="text-xs font-medium text-slate-600">{label}</span>
+          <span className="text-xs text-slate-500">{label}</span>
           <button
-            className="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs flex items-center justify-center hover:bg-slate-300 transition-colors"
-            onMouseEnter={() => setShowTooltip(true)}
-            onMouseLeave={() => setShowTooltip(false)}
-            onClick={() => setShowTooltip(!showTooltip)}
-          >
-            ?
-          </button>
-          {showTooltip && (
-            <div className="absolute bottom-6 left-0 z-10 w-56 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg">
-              {METRIC_TOOLTIPS[label]}
-              <div className="absolute -bottom-1 left-3 w-2 h-2 bg-slate-800 rotate-45" />
+            onMouseEnter={() => setShow(true)}
+            onMouseLeave={() => setShow(false)}
+            className="w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 text-[9px] flex items-center justify-center hover:bg-slate-300 transition-colors"
+          >?</button>
+          {show && (
+            <div className="absolute bottom-5 left-0 z-20 w-52 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-xl leading-relaxed">
+              {tooltip}
+              <div className="absolute -bottom-1 left-4 w-2 h-2 bg-slate-800 rotate-45" />
             </div>
           )}
         </div>
-        <span className={`text-xs font-bold ${textColor}`}>{pct}%</span>
+        <span className={`text-xs font-bold tabular-nums ${textColor}`}>{pct}%</span>
       </div>
-      <div className="w-full bg-slate-100 rounded-full h-1.5">
+      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
         <div
-          className={`${color} h-1.5 rounded-full transition-all duration-500`}
+          className={`h-full rounded-full transition-all duration-700 ${color}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -78,38 +62,31 @@ function ScoreBar({
   );
 }
 
-export default function RagasPanel({ ragas }: RagasPanelProps) {
+export default function RagasPanel({ ragas }: { ragas: RagasScore | null }) {
   if (!ragas) {
     return (
-      <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-        <p className="text-xs text-slate-400 italic">RAGAS evaluation unavailable</p>
+      <div className="mt-3 px-3 py-2 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-400 italic">
+        RAGAS evaluation unavailable
       </div>
     );
   }
 
   const overallPct = Math.round(ragas.overall_score * 100);
-  const overallColor =
-    overallPct >= 80
-      ? "text-green-600 bg-green-50 border-green-200"
-      : overallPct >= 60
-      ? "text-amber-600 bg-amber-50 border-amber-200"
-      : "text-red-600 bg-red-50 border-red-200";
+  const overallColor = overallPct >= 80 ? "text-green-700 bg-green-50 ring-green-200"
+    : overallPct >= 60 ? "text-amber-700 bg-amber-50 ring-amber-200"
+    : "text-red-700 bg-red-50 ring-red-200";
 
   return (
-    <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-          RAGAS Evaluation
-        </span>
-        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${overallColor}`}>
-          Overall {overallPct}%
+    <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">RAGAS Eval</span>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ring-1 ${overallColor}`}>
+          {overallPct}% overall
         </span>
       </div>
-      <div className="space-y-2">
-        <ScoreBar label="Context Precision" value={ragas.context_precision} />
-        <ScoreBar label="Faithfulness" value={ragas.faithfulness} />
-        <ScoreBar label="Answer Relevance" value={ragas.answer_relevance} />
-      </div>
+      {METRICS.map((m) => (
+        <MetricBar key={m.key} label={m.label} value={ragas[m.key]} tooltip={m.tooltip} />
+      ))}
     </div>
   );
 }

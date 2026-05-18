@@ -1,7 +1,9 @@
-"""Check patient eligibility against trial criteria using Claude claude-sonnet-4-20250514."""
+"""Check patient eligibility against trial criteria using Groq (Llama 3.3 70B)."""
 
 import os
-from langchain_anthropic import ChatAnthropic
+from functools import lru_cache
+
+from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from backend.schemas.models import (
@@ -25,12 +27,13 @@ For each criterion you identify, output a structured assessment with:
 Provide an overall verdict and a confidence score 0.0-1.0."""
 
 
-def _get_llm() -> ChatAnthropic:
-    return ChatAnthropic(
-        model="claude-sonnet-4-20250514",
+@lru_cache(maxsize=1)
+def _get_llm() -> ChatGroq:
+    return ChatGroq(
+        model="llama-3.3-70b-versatile",
         temperature=0,
         max_tokens=2048,
-        anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+        groq_api_key=os.environ.get("GROQ_API_KEY"),
     )
 
 
@@ -39,8 +42,7 @@ def check_eligibility(
     candidates: list[TrialCandidate],
     max_trials: int = 5,
 ) -> list[EligibilityResult]:
-    llm = _get_llm()
-    structured_llm = llm.with_structured_output(EligibilityResult)
+    structured_llm = _get_llm().with_structured_output(EligibilityResult)
 
     results: list[EligibilityResult] = []
     for trial in candidates[:max_trials]:

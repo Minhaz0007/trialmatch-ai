@@ -6,190 +6,143 @@ import MatchCard from "../components/MatchCard";
 
 interface MatchResult {
   trial: {
-    nct_id: string;
-    title: string;
-    phase: string | null;
-    sponsor: string | null;
-    conditions: string[];
-    eligibility_criteria: string;
-    locations: string[];
+    nct_id: string; title: string; phase: string | null; sponsor: string | null;
+    conditions: string[]; eligibility_criteria: string; locations: string[];
     similarity_score: number;
   };
   eligibility: {
     nct_id: string;
     overall: "ELIGIBLE" | "EXCLUDED" | "UNCERTAIN";
-    criteria_results: Array<{
-      criterion: string;
-      decision: "ELIGIBLE" | "EXCLUDED" | "UNCERTAIN";
-      reasoning: string;
-      criterion_type: "inclusion" | "exclusion";
-    }>;
-    confidence: number;
-    summary: string;
+    criteria_results: Array<{ criterion: string; decision: "ELIGIBLE" | "EXCLUDED" | "UNCERTAIN"; reasoning: string; criterion_type: "inclusion" | "exclusion"; }>;
+    confidence: number; summary: string;
   };
-  ragas: {
-    context_precision: number;
-    faithfulness: number;
-    answer_relevance: number;
-    overall_score: number;
-  } | null;
+  ragas: { context_precision: number; faithfulness: number; answer_relevance: number; overall_score: number; } | null;
   matched_at: string;
 }
-
 interface MatchResponse {
-  patient_id: string;
-  matches: MatchResult[];
-  total_trials_searched: number;
-  processing_time_seconds: number;
-  trace_id: string;
+  patient_id: string; matches: MatchResult[]; total_trials_searched: number;
+  processing_time_seconds: number; trace_id: string;
 }
-
-type SortKey = "confidence" | "phase" | "sponsor" | "similarity";
+type SortKey = "confidence" | "similarity" | "phase" | "sponsor";
 
 export default function ResultsPage() {
   const router = useRouter();
   const [data, setData] = useState<MatchResponse | null>(null);
-  const [sortBy, setSortBy] = useState<SortKey>("confidence");
+  const [sort, setSort] = useState<SortKey>("confidence");
   const [eligibleOnly, setEligibleOnly] = useState(false);
 
   useEffect(() => {
     const raw = sessionStorage.getItem("matchResults");
-    if (!raw) {
-      router.push("/");
-      return;
-    }
-    try {
-      setData(JSON.parse(raw));
-    } catch {
-      router.push("/");
-    }
+    if (!raw) { router.push("/"); return; }
+    try { setData(JSON.parse(raw)); } catch { router.push("/"); }
   }, [router]);
 
   if (!data) {
     return (
-      <div className="flex items-center justify-center min-h-64">
-        <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+        <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+        <p className="text-sm text-slate-500">Loading results...</p>
       </div>
     );
   }
 
   let matches = [...data.matches];
-
-  if (eligibleOnly) {
-    matches = matches.filter((m) => m.eligibility.overall === "ELIGIBLE");
-  }
-
+  if (eligibleOnly) matches = matches.filter((m) => m.eligibility.overall === "ELIGIBLE");
   matches.sort((a, b) => {
-    switch (sortBy) {
-      case "confidence":
-        return b.eligibility.confidence - a.eligibility.confidence;
-      case "phase":
-        return (a.trial.phase || "z").localeCompare(b.trial.phase || "z");
-      case "sponsor":
-        return (a.trial.sponsor || "z").localeCompare(b.trial.sponsor || "z");
-      case "similarity":
-        return b.trial.similarity_score - a.trial.similarity_score;
-      default:
-        return 0;
+    switch (sort) {
+      case "confidence": return b.eligibility.confidence - a.eligibility.confidence;
+      case "similarity": return b.trial.similarity_score - a.trial.similarity_score;
+      case "phase": return (a.trial.phase || "z").localeCompare(b.trial.phase || "z");
+      case "sponsor": return (a.trial.sponsor || "z").localeCompare(b.trial.sponsor || "z");
     }
   });
 
-  const eligibleCount = data.matches.filter((m) => m.eligibility.overall === "ELIGIBLE").length;
-  const uncertainCount = data.matches.filter((m) => m.eligibility.overall === "UNCERTAIN").length;
-  const excludedCount = data.matches.filter((m) => m.eligibility.overall === "EXCLUDED").length;
+  const eligible = data.matches.filter((m) => m.eligibility.overall === "ELIGIBLE").length;
+  const uncertain = data.matches.filter((m) => m.eligibility.overall === "UNCERTAIN").length;
+  const excluded = data.matches.filter((m) => m.eligibility.overall === "EXCLUDED").length;
+  const avgRagas = (() => {
+    const scores = data.matches.map((m) => m.ragas?.overall_score).filter((s): s is number => s != null);
+    return scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 100) : null;
+  })();
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-10">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="mb-8">
-        <button
-          onClick={() => router.push("/")}
-          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors mb-4"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+      <div>
+        <button onClick={() => router.push("/")}
+          className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors mb-4 group">
+          <svg className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
           New search
         </button>
 
-        <h1 className="text-2xl font-bold text-slate-900">
-          Matching Results for Patient{" "}
-          <span className="text-blue-600">{data.patient_id}</span>
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Searched {data.total_trials_searched} candidate trials · Completed in{" "}
-          <strong>{data.processing_time_seconds.toFixed(1)}s</strong> · Trace{" "}
-          <code className="text-xs bg-slate-100 px-1 rounded">{data.trace_id.slice(0, 8)}</code>
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Match Results</h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Patient <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs font-mono">{data.patient_id}</code>
+              {" · "}{data.total_trials_searched} candidates · {data.processing_time_seconds.toFixed(1)}s
+              {" · "}Trace <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs font-mono">{data.trace_id.slice(0, 8)}</code>
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="card text-center py-4 border-l-4 border-l-green-500">
-          <p className="text-2xl font-bold text-green-600">{eligibleCount}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Eligible</p>
-        </div>
-        <div className="card text-center py-4 border-l-4 border-l-amber-500">
-          <p className="text-2xl font-bold text-amber-600">{uncertainCount}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Uncertain</p>
-        </div>
-        <div className="card text-center py-4 border-l-4 border-l-red-500">
-          <p className="text-2xl font-bold text-red-600">{excludedCount}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Excluded</p>
-        </div>
+      {/* Stats row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { value: eligible, label: "Eligible", color: "border-l-green-500 text-green-600" },
+          { value: uncertain, label: "Uncertain", color: "border-l-amber-400 text-amber-600" },
+          { value: excluded, label: "Excluded", color: "border-l-red-500 text-red-600" },
+          { value: avgRagas != null ? `${avgRagas}%` : "—", label: "Avg RAGAS", color: "border-l-blue-500 text-blue-600" },
+        ].map((s) => (
+          <div key={s.label} className={`bg-white rounded-2xl border border-slate-200 border-l-4 ${s.color} shadow-sm px-4 py-3`}>
+            <p className={`text-2xl font-extrabold ${s.color.split(" ")[1]}`}>{s.value}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
+          </div>
+        ))}
       </div>
 
       {/* Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-slate-600">Sort by:</label>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortKey)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="confidence">Confidence Score</option>
-            <option value="similarity">Semantic Similarity</option>
-            <option value="phase">Trial Phase</option>
+          <label className="text-xs font-semibold text-slate-600">Sort by</label>
+          <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}
+            className="text-sm border border-slate-200 rounded-xl px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700">
+            <option value="confidence">Confidence</option>
+            <option value="similarity">Similarity</option>
+            <option value="phase">Phase</option>
             <option value="sponsor">Sponsor</option>
           </select>
         </div>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <div
-            onClick={() => setEligibleOnly(!eligibleOnly)}
-            className={`relative w-10 h-5 rounded-full transition-colors ${
-              eligibleOnly ? "bg-green-500" : "bg-slate-300"
-            }`}
-          >
-            <div
-              className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                eligibleOnly ? "translate-x-5" : ""
-              }`}
-            />
+        <button
+          onClick={() => setEligibleOnly(!eligibleOnly)}
+          className={`inline-flex items-center gap-2 text-sm font-medium px-4 py-1.5 rounded-xl border transition-all ${
+            eligibleOnly ? "bg-green-50 text-green-700 border-green-200" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+          }`}
+        >
+          <div className={`w-8 h-4 rounded-full transition-colors relative ${eligibleOnly ? "bg-green-500" : "bg-slate-300"}`}>
+            <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${eligibleOnly ? "translate-x-4" : "translate-x-0.5"}`} />
           </div>
-          <span className="text-sm text-slate-600">Eligible only</span>
-        </label>
+          Eligible only
+        </button>
       </div>
 
-      {/* Results list */}
+      {/* Match list */}
       {matches.length === 0 ? (
-        <div className="card text-center py-12 text-slate-500">
-          <svg className="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <div className="card text-center py-16">
+          <svg className="w-12 h-12 mx-auto mb-3 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <p className="font-medium">No matches found with current filters</p>
-          <button
-            onClick={() => setEligibleOnly(false)}
-            className="mt-3 text-sm text-blue-600 hover:underline"
-          >
+          <p className="font-semibold text-slate-500">No matches with current filters</p>
+          <button onClick={() => setEligibleOnly(false)} className="mt-3 text-sm text-blue-600 hover:underline">
             Show all results
           </button>
         </div>
       ) : (
         <div className="space-y-4">
-          {matches.map((match, i) => (
-            <MatchCard key={match.trial.nct_id} match={match} rank={i + 1} />
-          ))}
+          {matches.map((m, i) => <MatchCard key={m.trial.nct_id} match={m} rank={i + 1} />)}
         </div>
       )}
     </div>
