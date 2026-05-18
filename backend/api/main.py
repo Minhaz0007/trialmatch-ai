@@ -336,9 +336,11 @@ async def get_config():
 @app.get("/health")
 async def health_check():
     count = collection_count()
+    groq_key = os.environ.get("GROQ_API_KEY", "")
     return {
         "status": "ok",
         "chroma_collection_count": count,
+        "groq_key_set": bool(groq_key),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": "1.0.0",
     }
