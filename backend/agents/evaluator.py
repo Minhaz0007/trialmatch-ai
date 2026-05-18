@@ -25,14 +25,14 @@ def _run_ragas(
         from ragas import evaluate
         from ragas.metrics import LLMContextRecall, Faithfulness, FactualCorrectness
         from ragas.llms import LangchainLLMWrapper
-        from langchain_anthropic import ChatAnthropic
+        from langchain_groq import ChatGroq
     except ImportError:
         return None
 
-    llm = ChatAnthropic(
-        model="claude-sonnet-4-20250514",
+    llm = ChatGroq(
+        model="llama-3.3-70b-versatile",
         temperature=0,
-        anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+        groq_api_key=os.environ.get("GROQ_API_KEY"),
     )
     evaluator_llm = LangchainLLMWrapper(llm)
 
