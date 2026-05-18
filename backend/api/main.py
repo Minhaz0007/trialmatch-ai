@@ -1,5 +1,6 @@
 """FastAPI application for TrialMatch AI."""
 
+import json
 import logging
 import os
 import time
@@ -13,16 +14,21 @@ load_dotenv()
 os.environ.setdefault("LANGCHAIN_TRACING_V2", os.getenv("LANGCHAIN_TRACING_V2", "false"))
 os.environ.setdefault("LANGCHAIN_PROJECT", os.getenv("LANGCHAIN_PROJECT", "trialmatch-ai"))
 
-from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi import FastAPI, HTTPException, Request, Header, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from backend.schemas.models import PatientInput, MatchResponse, MatchResult
+from backend.schemas.models import PatientInput, MatchResponse
 from backend.graph.pipeline import run_pipeline
-from backend.data.ingest_trials import collection_count, get_chroma_client, COLLECTION_NAME
+from backend.data.ingest_trials import (
+    collection_count,
+    get_chroma_client,
+    get_or_create_collection,
+    COLLECTION_NAME,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +56,12 @@ app.add_middleware(
 )
 
 _API_KEY = os.environ.get("API_KEY", "")
+
+_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=600,
+    chunk_overlap=80,
+    separators=["\n\nInclusion Criteria", "\n\nExclusion Criteria", "\n\n", "\n", ". "],
+)
 
 
 def _check_api_key(x_api_key: str | None) -> None:
@@ -117,6 +129,136 @@ async def match_patient(
     )
 
 
+@app.post("/admin/seed")
+@limiter.limit("5/minute")
+async def seed_database(
+    request: Request,
+    file: UploadFile = File(...),
+    x_api_key: str | None = Header(default=None),
+):
+    """Accept a ClinicalTrials.gov JSON file and ingest into ChromaDB."""
+    _check_api_key(x_api_key)
+
+    if not file.filename or not file.filename.endswith(".json"):
+        raise HTTPException(status_code=400, detail="Only .json files are accepted.")
+
+    raw = await file.read()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON file.")
+
+    studies = data.get("studies", [])
+    if not studies:
+        raise HTTPException(
+            status_code=400,
+            detail="No studies found. File must be a ClinicalTrials.gov API v2 JSON response.",
+        )
+
+    client = get_chroma_client()
+
+    # Clear existing collection for fresh ingest
+    try:
+        client.delete_collection(COLLECTION_NAME)
+    except Exception:
+        pass
+
+    collection = get_or_create_collection(client)
+
+    batch_docs: list[str] = []
+    batch_metas: list[dict] = []
+    batch_ids: list[str] = []
+    trials_ingested = 0
+
+    for study in studies:
+        trial = _parse_trial(study)
+        if not trial:
+            continue
+
+        chunks = _splitter.split_text(trial["eligibility_criteria"])
+        if not chunks:
+            chunks = [trial["eligibility_criteria"][:600]]
+
+        meta = {
+            "nct_id": trial["nct_id"],
+            "title": trial["title"][:500],
+            "phase": trial["phase"] or "",
+            "sponsor": trial["sponsor"] or "",
+            "conditions": json.dumps(trial["conditions"][:10]),
+            "locations": json.dumps(trial["locations"][:5]),
+        }
+
+        for chunk_idx, chunk in enumerate(chunks):
+            doc_id = f"{trial['nct_id']}_chunk_{chunk_idx}"
+            batch_docs.append(chunk)
+            batch_metas.append(meta)
+            batch_ids.append(doc_id)
+
+        trials_ingested += 1
+
+    if not batch_docs:
+        raise HTTPException(status_code=400, detail="No valid trials with eligibility criteria found in file.")
+
+    # ChromaDB embeds automatically using DefaultEmbeddingFunction
+    BATCH = 100
+    for i in range(0, len(batch_docs), BATCH):
+        collection.add(
+            documents=batch_docs[i : i + BATCH],
+            metadatas=batch_metas[i : i + BATCH],
+            ids=batch_ids[i : i + BATCH],
+        )
+
+    logger.info("Seeded %d trials → %d chunks into ChromaDB", trials_ingested, len(batch_docs))
+
+    return {
+        "status": "ok",
+        "trials_ingested": trials_ingested,
+        "chunks_stored": len(batch_docs),
+        "message": f"Successfully ingested {trials_ingested} trials into ChromaDB.",
+    }
+
+
+def _parse_trial(study: dict) -> dict | None:
+    try:
+        proto = study.get("protocolSection", {})
+        id_mod = proto.get("identificationModule", {})
+        sponsor_mod = proto.get("sponsorCollaboratorsModule", {})
+        cond_mod = proto.get("conditionsModule", {})
+        design_mod = proto.get("designModule", {})
+        elig_mod = proto.get("eligibilityModule", {})
+        contacts_mod = proto.get("contactsLocationsModule", {})
+
+        nct_id = id_mod.get("nctId", "")
+        if not nct_id:
+            return None
+
+        eligibility_criteria = elig_mod.get("eligibilityCriteria", "").strip()
+        if not eligibility_criteria:
+            return None
+
+        phases = design_mod.get("phases", [])
+        phase = phases[0].replace("PHASE", "Phase ").replace("_", "/") if phases else None
+
+        locations = []
+        for loc in contacts_mod.get("locations", [])[:5]:
+            city = loc.get("city", "")
+            country = loc.get("country", "")
+            if city or country:
+                locations.append(f"{city}, {country}".strip(", "))
+
+        return {
+            "nct_id": nct_id,
+            "title": id_mod.get("briefTitle", "Unknown"),
+            "phase": phase,
+            "sponsor": sponsor_mod.get("leadSponsor", {}).get("name"),
+            "conditions": cond_mod.get("conditions", []),
+            "eligibility_criteria": eligibility_criteria,
+            "locations": locations,
+        }
+    except Exception:
+        return None
+
+
 @app.get("/trials/{nct_id}")
 @limiter.limit("30/minute")
 async def get_trial(
@@ -130,7 +272,7 @@ async def get_trial(
         client = get_chroma_client()
         collection = client.get_collection(COLLECTION_NAME)
     except Exception:
-        raise HTTPException(status_code=503, detail="Vector store unavailable. Run seed_trials.py first.")
+        raise HTTPException(status_code=503, detail="Vector store unavailable. Seed the database first.")
 
     results = collection.get(
         where={"nct_id": nct_id},

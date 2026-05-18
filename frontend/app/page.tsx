@@ -1,4 +1,5 @@
 import PatientForm from "./components/PatientForm";
+import SeedPanel from "./components/SeedPanel";
 
 export default function HomePage() {
   return (
@@ -33,13 +34,13 @@ export default function HomePage() {
         ))}
       </div>
 
-      {/* Form */}
+      {/* Patient Form */}
       <div className="card">
         <h2 className="text-lg font-semibold text-slate-800 mb-4">Patient Information</h2>
         <PatientForm />
       </div>
 
-      {/* Sample patients */}
+      {/* Sample patients hint */}
       <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
         <p className="text-sm font-medium text-amber-800 mb-2">Try a sample patient</p>
         <p className="text-xs text-amber-700">
@@ -47,6 +48,9 @@ export default function HomePage() {
           HbA1c: 8.4, eGFR: 62
         </p>
       </div>
+
+      {/* Seed Database (collapsible) */}
+      <SeedPanel />
 
       {/* How it works */}
       <div className="mt-10">
