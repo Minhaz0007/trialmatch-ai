@@ -14,7 +14,8 @@ load_dotenv()
 os.environ.setdefault("LANGCHAIN_TRACING_V2", os.getenv("LANGCHAIN_TRACING_V2", "false"))
 os.environ.setdefault("LANGCHAIN_PROJECT", os.getenv("LANGCHAIN_PROJECT", "trialmatch-ai"))
 
-from fastapi import FastAPI, HTTPException, Request, Header, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, Header, UploadFile, File, Body
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -294,6 +295,41 @@ async def get_trial(
         "locations": meta.get("locations"),
         "eligibility_criteria_chunk": doc,
         "clinicaltrials_url": f"https://clinicaltrials.gov/study/{nct_id}",
+    }
+
+
+class ConfigInput(BaseModel):
+    groq_api_key: str
+
+
+@app.post("/admin/config")
+async def set_config(body: ConfigInput):
+    """Store the Groq API key in the server process environment."""
+    key = body.groq_api_key.strip()
+    if not key.startswith("gsk_"):
+        raise HTTPException(status_code=400, detail="Invalid Groq API key — must start with gsk_")
+
+    os.environ["GROQ_API_KEY"] = key
+
+    # Clear cached LLM so the next request picks up the new key
+    from backend.agents.eligibility_checker import _get_llm
+    _get_llm.cache_clear()
+
+    logger.info("Groq API key updated via admin/config")
+    return {
+        "status": "ok",
+        "message": "Groq API key saved. You can now run patient matching.",
+        "preview": f"gsk_...{key[-6:]}",
+    }
+
+
+@app.get("/admin/config")
+async def get_config():
+    """Return whether the Groq API key is currently set (never returns the key itself)."""
+    key = os.environ.get("GROQ_API_KEY", "")
+    return {
+        "groq_api_key_set": bool(key),
+        "preview": f"gsk_...{key[-6:]}" if key else None,
     }
 
 

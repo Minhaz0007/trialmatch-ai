@@ -1,5 +1,6 @@
 import PatientForm from "./components/PatientForm";
 import SeedPanel from "./components/SeedPanel";
+import ApiKeyPanel from "./components/ApiKeyPanel";
 
 export default function HomePage() {
   return (
@@ -49,7 +50,8 @@ export default function HomePage() {
         </p>
       </div>
 
-      {/* Seed Database (collapsible) */}
+      {/* API Key + Seed Database (collapsible panels) */}
+      <ApiKeyPanel />
       <SeedPanel />
 
       {/* How it works */}
