@@ -67,7 +67,7 @@
 | Observability | LangSmith tracing |
 | API | FastAPI + Pydantic v2 + slowapi |
 | Frontend | Next.js 14 + TypeScript + Tailwind CSS |
-| Deployment | Docker + Render (backend) + Vercel (frontend) |
+| Deployment | Docker + EC2/EBS (backend) + AWS Amplify (frontend) |
 
 ## Setup
 
@@ -139,7 +139,7 @@ Scores are color-coded: **green** (>80%), **amber** (60–80%), **red** (<60%).
 
 ## Live Demo
 
-🔗 [https://trialmatch-ai.vercel.app](https://trialmatch-ai.vercel.app) *(coming soon)*
+🔗 AWS Amplify URL available after deployment *(see `deploy/AWS_DEPLOY.md`)*
 
 ## Author
 
