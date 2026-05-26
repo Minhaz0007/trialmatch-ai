@@ -134,7 +134,7 @@ ok "AMI: ${AMI_ID}"
 # This script runs automatically on first boot and fully deploys:
 #   • Docker + docker-compose (backend via FastAPI container)
 #   • Node.js 20 + PM2 (frontend via Next.js)
-#   • 2 GB swap file (t2.micro only has 1 GB RAM; Next.js build needs ~1.5 GB)
+#   • 2 GB swap file (t3.micro only has 1 GB RAM; Next.js build needs ~1.5 GB)
 #   • EBS mount for ChromaDB persistence
 #
 # Variable escaping guide:
@@ -147,7 +147,7 @@ set -euo pipefail
 exec >> /var/log/trialmatch-setup.log 2>&1
 echo "=== TrialMatch AI boot setup started: \$(date) ==="
 
-# ── Add 2 GB swap (prevents OOM during Next.js build on t2.micro 1 GB RAM) ───
+# ── Add 2 GB swap (prevents OOM during Next.js build on t3.micro 1 GB RAM) ───
 fallocate -l 2G /swapfile
 chmod 600 /swapfile
 mkswap /swapfile
