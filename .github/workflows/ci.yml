@@ -36,4 +36,4 @@ jobs:
 
       - name: Confirm deploy readiness
         if: success() && github.ref == 'refs/heads/main'
-        run: echo "✅ All tests passed — Ready to deploy to Render"
+        run: echo "✅ All tests passed — Ready to deploy to AWS"

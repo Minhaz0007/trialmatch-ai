@@ -65,7 +65,7 @@ docker compose -f /home/ubuntu/app/docker-compose.yml logs -f
 
 ### 2. Build settings
 
-Amplify will auto-detect the `amplify.yml` in `deploy/`. If not, paste it manually:
+Amplify will auto-detect `amplify.yml` at the repository root (already present). If needed, paste it manually:
 
 ```yaml
 version: 1
