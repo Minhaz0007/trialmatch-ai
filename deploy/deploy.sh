@@ -7,7 +7,7 @@
 #   1. Creates an EC2 key pair (saves .pem locally)
 #   2. Creates a security group (ports 22, 80, 3000, 8000)
 #   3. Looks up the latest Ubuntu 22.04 LTS AMI via SSM
-#   4. Launches a t2.micro EC2 instance
+#   4. Launches a t3.micro EC2 instance
 #   5. Creates and attaches a gp3 EBS volume for ChromaDB persistence
 #   6. Waits for the instance to be SSH-reachable
 #   7. Deploys the backend (FastAPI + ChromaDB via Docker Compose)
@@ -61,7 +61,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # ── Defaults ───────────────────────────────────────────────────────────────────
 APP_NAME="trialmatch-ai"
 REGION="${AWS_REGION:-us-east-1}"
-INSTANCE_TYPE="t2.micro"
+INSTANCE_TYPE="t3.micro"
 KEY_NAME="trialmatch-key"
 SG_NAME="trialmatch-sg"
 GITHUB_REPO="https://github.com/minhaz0007/trialmatch-ai.git"
@@ -94,7 +94,7 @@ Usage: $0 [options]
 Options:
   --groq-key KEY          Groq API key (prompted if not set)
   --region REGION         AWS region (default: us-east-1)
-  --instance-type TYPE    EC2 instance type (default: t2.micro)
+  --instance-type TYPE    EC2 instance type (default: t3.micro)
   --key-name NAME         EC2 key pair name (default: trialmatch-key)
   --amplify               Deploy frontend to AWS Amplify (needs --github-token)
   --github-token TOKEN    GitHub personal access token with 'repo' scope
@@ -679,7 +679,7 @@ print_summary() {
   echo "  4. Enter a patient profile and run a match!"
   echo ""
 
-  echo -e "${YELLOW}Cost tip:${NC} Stop the EC2 instance when not in use (~\$0/hr stopped vs ~\$0.01/hr running on t2.micro)"
+  echo -e "${YELLOW}Cost tip:${NC} Stop the EC2 instance when not in use (~\$0/hr stopped vs ~\$0.01/hr running on t3.micro)"
   echo "  aws ec2 stop-instances --instance-ids $INSTANCE_ID --region $REGION"
   echo ""
 
