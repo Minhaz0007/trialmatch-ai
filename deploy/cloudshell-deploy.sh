@@ -10,7 +10,7 @@
 #   4. Wait ~10-12 minutes — everything deploys automatically
 #
 # What it creates:
-#   • EC2 t2.micro (Ubuntu 22.04) — backend + frontend
+#   • EC2 t3.micro (Ubuntu 22.04) — backend + frontend
 #   • 8 GB gp3 EBS volume  — ChromaDB persistence
 #   • Security group        — ports 22, 3000, 8000
 #   • SSH key pair          — saved to ~/trialmatch-key.pem
@@ -32,7 +32,7 @@ die()  { echo -e "${RED}✘  $*${NC}" >&2; exit 1; }
 
 # ── Config (change these if needed) ──────────────────────────────────────────
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
-INSTANCE_TYPE="t2.micro"
+INSTANCE_TYPE="t3.micro"
 KEY_NAME="trialmatch-key"
 SG_NAME="trialmatch-sg"
 GITHUB_REPO="https://github.com/minhaz0007/trialmatch-ai.git"
@@ -67,10 +67,20 @@ step "Step 1/6: SSH Key Pair"
 
 if aws ec2 describe-key-pairs --key-names "$KEY_NAME" --region "$REGION" \
     &>/dev/null 2>&1; then
-  warn "Key pair '${KEY_NAME}' already exists in AWS"
-  [[ -f "$PEM_FILE" ]] \
-    && ok "PEM found at ${PEM_FILE}" \
-    || warn "PEM not found at ${PEM_FILE} — you won't be able to SSH in"
+  if [[ -f "$PEM_FILE" ]]; then
+    ok "Key pair '${KEY_NAME}' already exists and PEM found at ${PEM_FILE}"
+  else
+    # Key exists in AWS but PEM is gone — delete it and recreate so we have the private key
+    warn "Key pair '${KEY_NAME}' exists in AWS but PEM is missing locally — recreating it"
+    aws ec2 delete-key-pair --key-name "$KEY_NAME" --region "$REGION"
+    aws ec2 create-key-pair \
+      --key-name "$KEY_NAME" \
+      --query 'KeyMaterial' \
+      --output text \
+      --region "$REGION" > "$PEM_FILE"
+    chmod 400 "$PEM_FILE"
+    ok "Key pair recreated → ${PEM_FILE}"
+  fi
 else
   aws ec2 create-key-pair \
     --key-name "$KEY_NAME" \
