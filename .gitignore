@@ -59,6 +59,3 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
-
-# Docker
-.dockerignore

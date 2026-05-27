@@ -114,10 +114,12 @@ else
     --query 'GroupId' \
     --output text)
 
-  # SSH (consider restricting --cidr to your IP for production)
+  # SSH — restricted to the IP running this script
+  MY_IP=$(curl -sf https://checkip.amazonaws.com || curl -sf https://api.ipify.org)
+  [[ -n "$MY_IP" ]] || die "Could not determine your public IP for SSH security group rule"
   aws ec2 authorize-security-group-ingress \
     --group-id "$SG_ID" --protocol tcp --port 22 \
-    --cidr 0.0.0.0/0 --region "$REGION" >/dev/null
+    --cidr "${MY_IP}/32" --region "$REGION" >/dev/null
 
   # FastAPI backend
   aws ec2 authorize-security-group-ingress \
@@ -169,6 +171,9 @@ apt-get install -y git curl unzip docker.io docker-compose-v2
 systemctl enable docker
 systemctl start docker
 usermod -aG docker ubuntu
+
+echo "==> Waiting for Docker daemon"
+until docker info >/dev/null 2>&1; do sleep 2; done
 
 echo "==> Waiting for EBS data volume at /dev/xvdf"
 # The volume is attached at launch via block-device-mappings, but the

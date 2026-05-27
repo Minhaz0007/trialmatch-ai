@@ -14,6 +14,12 @@ systemctl enable docker
 systemctl start docker
 usermod -aG docker ubuntu
 
+# Wait for Docker daemon to be ready before any docker commands
+until docker info >/dev/null 2>&1; do
+  echo "Waiting for Docker daemon..."
+  sleep 2
+done
+
 # ── Mount persistent EBS volume for ChromaDB ─────────────────────────────────
 DEVICE=/dev/xvdf
 MOUNT=/data/chroma
