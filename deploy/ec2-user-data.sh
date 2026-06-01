@@ -8,7 +8,10 @@ exec > /var/log/trialmatch-setup.log 2>&1
 
 # ── System packages ───────────────────────────────────────────────────────────
 apt-get update -y
-apt-get install -y git curl unzip docker.io docker-compose-v2
+# docker-compose-v2 is the package name on Ubuntu 22.04/24.04;
+# on 26.04+ it may ship as docker-compose-plugin — install both, ignore errors
+apt-get install -y git curl unzip docker.io docker-compose-v2 || \
+  apt-get install -y git curl unzip docker.io docker-compose-plugin
 
 systemctl enable docker
 systemctl start docker

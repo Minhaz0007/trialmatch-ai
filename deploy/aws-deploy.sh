@@ -129,22 +129,30 @@ else
   ok "Security group $SG_ID created (ports 22, 8000 open)"
 fi
 
-# ── 3. Latest Ubuntu 22.04 LTS AMI ───────────────────────────────────────────
-section "3/8  Ubuntu 22.04 AMI lookup"
+# ── 3. Latest Ubuntu LTS AMI (26.04 → 24.04 → 22.04 fallback) ───────────────
+section "3/8  Ubuntu LTS AMI lookup"
 
 # Owner 099720109477 = Canonical (official Ubuntu)
-AMI_ID=$(aws ec2 describe-images \
-  --owners 099720109477 \
-  --filters \
-    "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*" \
-    "Name=state,Values=available" \
-    "Name=architecture,Values=x86_64" \
-  --region "$REGION" \
-  --query 'sort_by(Images, &CreationDate)[-1].ImageId' \
-  --output text)
+# Try latest Ubuntu LTS releases in order of preference
+AMI_ID=""
+for PATTERN in \
+  "ubuntu/images/hvm-ssd-gp3/ubuntu-*-26.04-amd64-server-*" \
+  "ubuntu/images/hvm-ssd/ubuntu-noble-24.04-amd64-server-*" \
+  "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"; do
+  AMI_ID=$(aws ec2 describe-images \
+    --owners 099720109477 \
+    --filters \
+      "Name=name,Values=${PATTERN}" \
+      "Name=state,Values=available" \
+      "Name=architecture,Values=x86_64" \
+    --region "$REGION" \
+    --query 'sort_by(Images, &CreationDate)[-1].ImageId' \
+    --output text 2>/dev/null || true)
+  [[ -n "$AMI_ID" && "$AMI_ID" != "None" ]] && break
+done
 
 [[ -n "$AMI_ID" && "$AMI_ID" != "None" ]] \
-  || die "No Ubuntu 22.04 AMI found in $REGION"
+  || die "No Ubuntu LTS AMI found in $REGION"
 ok "AMI: $AMI_ID"
 
 # ── 4. Build user-data script ────────────────────────────────────────────────
