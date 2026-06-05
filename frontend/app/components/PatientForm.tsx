@@ -20,7 +20,7 @@ export default function PatientForm() {
   const [conditions, setConditions] = useState<string[]>([]);
   const [medInput, setMedInput] = useState("");
   const [medications, setMedications] = useState<string[]>([]);
-  const [labs, setLabs] = useState<LabEntry[]>([{ key: "", value: "" }]);
+  const [labs, setLabs] = useState<LabEntry[]>([]);
 
   // FHIR
   const [dragOver, setDragOver] = useState(false);
@@ -97,9 +97,13 @@ export default function PatientForm() {
   const TagList = ({ items, set, color }: { items: string[]; set: (v: string[]) => void; color: string }) => (
     <div className="flex flex-wrap gap-1.5 mt-2">
       {items.map((item, i) => (
-        <span key={i} className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full ${color}`}>
+        <span key={i} className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border ${color}`}>
           {item}
-          <button onClick={() => removeTag(i, items, set)} className="opacity-60 hover:opacity-100 font-bold leading-none">×</button>
+          <button
+            onClick={() => removeTag(i, items, set)}
+            className="opacity-50 hover:opacity-100 font-bold leading-none ml-0.5 transition-opacity"
+            aria-label={`Remove ${item}`}
+          >×</button>
         </span>
       ))}
     </div>
@@ -118,11 +122,13 @@ export default function PatientForm() {
       </div>
 
       {tab === "manual" ? (
-        <div className="space-y-5">
+        <div className="space-y-5 animate-fade-in">
           {/* Demographics */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Age</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                Age <span className="text-slate-400 font-normal">(years)</span>
+              </label>
               <input
                 type="number" min="0" max="120" value={age}
                 onChange={(e) => setAge(e.target.value)}
@@ -130,7 +136,7 @@ export default function PatientForm() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Sex</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Biological Sex</label>
               <select value={sex} onChange={(e) => setSex(e.target.value)} className="select">
                 <option value="unknown">Not specified</option>
                 <option value="male">Male</option>
@@ -141,12 +147,20 @@ export default function PatientForm() {
 
           {/* Conditions */}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Conditions</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+              Diagnoses / Conditions
+            </label>
             <div className="flex gap-2">
               <input
                 type="text" value={condInput}
                 onChange={(e) => setCondInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(condInput, conditions, setConditions); setCondInput(""); }}}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    addTag(condInput, conditions, setConditions);
+                    setCondInput("");
+                  }
+                }}
                 placeholder="Type condition and press Enter"
                 className="input flex-1"
               />
@@ -155,17 +169,27 @@ export default function PatientForm() {
                 Add
               </button>
             </div>
-            {conditions.length > 0 && <TagList items={conditions} set={setConditions} color="bg-blue-50 text-blue-700 border border-blue-200" />}
+            {conditions.length > 0 && (
+              <TagList items={conditions} set={setConditions} color="bg-blue-50 text-blue-700 border-blue-200" />
+            )}
           </div>
 
           {/* Medications */}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Medications</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+              Current Medications
+            </label>
             <div className="flex gap-2">
               <input
                 type="text" value={medInput}
                 onChange={(e) => setMedInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(medInput, medications, setMedications); setMedInput(""); }}}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    addTag(medInput, medications, setMedications);
+                    setMedInput("");
+                  }
+                }}
                 placeholder="e.g. metformin 1000mg"
                 className="input flex-1"
               />
@@ -174,41 +198,55 @@ export default function PatientForm() {
                 Add
               </button>
             </div>
-            {medications.length > 0 && <TagList items={medications} set={setMedications} color="bg-violet-50 text-violet-700 border border-violet-200" />}
+            {medications.length > 0 && (
+              <TagList items={medications} set={setMedications} color="bg-violet-50 text-violet-700 border-violet-200" />
+            )}
           </div>
 
           {/* Labs */}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Lab Values</label>
-            <div className="space-y-2">
-              {labs.map((lab, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <input type="text" value={lab.key} placeholder="Lab name (e.g. HbA1c)"
-                    onChange={(e) => { const u = [...labs]; u[i] = { ...u[i], key: e.target.value }; setLabs(u); }}
-                    className="input flex-1" />
-                  <input type="number" step="any" value={lab.value} placeholder="Value"
-                    onChange={(e) => { const u = [...labs]; u[i] = { ...u[i], value: e.target.value }; setLabs(u); }}
-                    className="input w-28" />
-                  <button onClick={() => setLabs(labs.filter((_, idx) => idx !== i))}
-                    className="text-slate-300 hover:text-red-400 transition-colors shrink-0">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-              <button type="button" onClick={() => setLabs([...labs, { key: "", value: "" }])}
-                className="text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors">
-                + Add lab value
-              </button>
-            </div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+              Lab Values <span className="text-slate-400 font-normal">(optional)</span>
+            </label>
+            {labs.length > 0 && (
+              <div className="space-y-2 mb-2">
+                {labs.map((lab, i) => (
+                  <div key={i} className="flex gap-2 items-center animate-slide-in">
+                    <input type="text" value={lab.key} placeholder="Lab name (e.g. HbA1c)"
+                      onChange={(e) => { const u = [...labs]; u[i] = { ...u[i], key: e.target.value }; setLabs(u); }}
+                      className="input flex-1" />
+                    <input type="number" step="any" value={lab.value} placeholder="Value"
+                      onChange={(e) => { const u = [...labs]; u[i] = { ...u[i], value: e.target.value }; setLabs(u); }}
+                      className="input w-28" />
+                    <button
+                      onClick={() => setLabs(labs.filter((_, idx) => idx !== i))}
+                      className="text-slate-300 hover:text-red-400 transition-colors shrink-0 p-1"
+                      aria-label="Remove lab"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={() => setLabs([...labs, { key: "", value: "" }])}
+              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Add lab value
+            </button>
           </div>
         </div>
       ) : (
-        <div>
+        <div className="animate-fade-in">
           <div
             className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-200 ${
-              dragOver ? "border-blue-400 bg-blue-50" : fhirName ? "border-green-400 bg-green-50" : "border-slate-200 hover:border-slate-300"
+              dragOver ? "border-blue-400 bg-blue-50" :
+              fhirName ? "border-emerald-400 bg-emerald-50" :
+              "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
             }`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
@@ -219,11 +257,11 @@ export default function PatientForm() {
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFhir(f); }} />
             {fhirName ? (
               <>
-                <svg className="w-10 h-10 text-green-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-10 h-10 text-emerald-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="font-semibold text-green-700">{fhirName}</p>
-                <p className="text-sm text-green-600 mt-1">FHIR bundle loaded — ready to match</p>
+                <p className="font-semibold text-emerald-700">{fhirName}</p>
+                <p className="text-sm text-emerald-600 mt-1">FHIR bundle loaded — ready to match</p>
               </>
             ) : (
               <>
