@@ -30,8 +30,8 @@ const METRICS = [
 function MetricBar({ label, value, tooltip }: { label: string; value: number; tooltip: string }) {
   const [show, setShow] = useState(false);
   const pct = Math.round(value * 100);
-  const color = pct >= 80 ? "bg-green-500" : pct >= 60 ? "bg-amber-400" : "bg-red-400";
-  const textColor = pct >= 80 ? "text-green-700" : pct >= 60 ? "text-amber-700" : "text-red-600";
+  const color = pct >= 80 ? "progress-fill-emerald" : pct >= 60 ? "progress-fill-amber" : "progress-fill-red";
+  const textColor = pct >= 80 ? "text-emerald-700" : pct >= 60 ? "text-amber-700" : "text-red-600";
 
   return (
     <div className="space-y-1">
@@ -52,11 +52,8 @@ function MetricBar({ label, value, tooltip }: { label: string; value: number; to
         </div>
         <span className={`text-xs font-bold tabular-nums ${textColor}`}>{pct}%</span>
       </div>
-      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-700 ${color}`}
-          style={{ width: `${pct}%` }}
-        />
+      <div className="progress-track">
+        <div className={`transition-all duration-700 ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -72,7 +69,7 @@ export default function RagasPanel({ ragas }: { ragas: RagasScore | null }) {
   }
 
   const overallPct = Math.round(ragas.overall_score * 100);
-  const overallColor = overallPct >= 80 ? "text-green-700 bg-green-50 ring-green-200"
+  const overallColor = overallPct >= 80 ? "text-emerald-700 bg-emerald-50 ring-emerald-200"
     : overallPct >= 60 ? "text-amber-700 bg-amber-50 ring-amber-200"
     : "text-red-700 bg-red-50 ring-red-200";
 
