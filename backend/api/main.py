@@ -431,86 +431,13 @@ async def get_config():
 
 
 @app.on_event("startup")
-async def auto_seed_on_startup():
-    """If the vector store is empty on startup, fetch trials from ClinicalTrials.gov automatically."""
+async def log_startup_state():
+    """Log ChromaDB state on startup."""
     count = collection_count()
     if count > 0:
-        logger.info("ChromaDB already has %d chunks — skipping auto-seed", count)
-        return
-
-    logger.info("ChromaDB is empty — auto-seeding from ClinicalTrials.gov...")
-    import httpx
-
-    BASE_URL = "https://clinicaltrials.gov/api/v2/studies"
-    PARAMS_BASE = {
-        "filter.overallStatus": "RECRUITING",
-        "query.cond": "diabetes OR cancer OR hypertension OR heart failure OR alzheimer",
-        "fields": "NCTId,BriefTitle,Phase,LeadSponsorName,Condition,EligibilityCriteria,LocationCity,LocationCountry",
-        "pageSize": 100,
-        "format": "json",
-    }
-
-    all_studies = []
-    page_token = None
-
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            for _ in range(3):
-                params = dict(PARAMS_BASE)
-                if page_token:
-                    params["pageToken"] = page_token
-                r = await client.get(BASE_URL, params=params)
-                r.raise_for_status()
-                data = r.json()
-                all_studies.extend(data.get("studies", []))
-                page_token = data.get("nextPageToken")
-                if not page_token:
-                    break
-    except Exception as e:
-        logger.warning("Auto-seed fetch failed: %s — server still starting", e)
-        return
-
-    if not all_studies:
-        logger.warning("Auto-seed: no studies returned from ClinicalTrials.gov")
-        return
-
-    client_db = get_chroma_client()
-    collection = get_or_create_collection(client_db)
-    batch_docs: list[str] = []
-    batch_metas: list[dict] = []
-    batch_ids: list[str] = []
-    trials_ingested = 0
-
-    for study in all_studies:
-        trial = _parse_trial(study)
-        if not trial:
-            continue
-        chunks = _splitter.split_text(trial["eligibility_criteria"])
-        if not chunks:
-            chunks = [trial["eligibility_criteria"][:600]]
-        meta = {
-            "nct_id": trial["nct_id"],
-            "title": trial["title"][:500],
-            "phase": trial["phase"] or "",
-            "sponsor": trial["sponsor"] or "",
-            "conditions": json.dumps(trial["conditions"][:10]),
-            "locations": json.dumps(trial["locations"][:5]),
-        }
-        for chunk_idx, chunk in enumerate(chunks):
-            batch_docs.append(chunk)
-            batch_metas.append(meta)
-            batch_ids.append(f"{trial['nct_id']}_chunk_{chunk_idx}")
-        trials_ingested += 1
-
-    BATCH = 100
-    for i in range(0, len(batch_docs), BATCH):
-        collection.add(
-            documents=batch_docs[i : i + BATCH],
-            metadatas=batch_metas[i : i + BATCH],
-            ids=batch_ids[i : i + BATCH],
-        )
-
-    logger.info("Auto-seed complete: %d trials → %d chunks", trials_ingested, len(batch_docs))
+        logger.info("ChromaDB ready — %d chunks loaded", count)
+    else:
+        logger.info("ChromaDB is empty — upload a trials.json via /admin/seed to populate")
 
 
 @app.get("/health")
