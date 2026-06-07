@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-type SeedState = "idle" | "uploading" | "fetching" | "success" | "error";
+type SeedState = "idle" | "uploading" | "success" | "error";
 
 interface SeedResult { trials_ingested: number; chunks_stored: number; message: string; }
 interface Props { onStatusChange?: (count: number) => void; }
@@ -44,28 +44,11 @@ export default function SeedPanel({ onStatusChange }: Props) {
     }
   };
 
-  const handleFetch = async () => {
-    setState("fetching"); setError(null); setResult(null);
-    try {
-      const r = await fetch(`${API_URL}/admin/fetch-and-seed`, { method: "POST" });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || `Error ${r.status}`);
-      setResult(d); setState("success");
-      onStatusChange?.(d.chunks_stored);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Fetch failed. Is the backend running?");
-      setState("error");
-    }
-  };
-
   const handleReset = () => {
-    setState("idle");
-    setResult(null);
-    setError(null);
-    setFile(null);
+    setState("idle"); setResult(null); setError(null); setFile(null);
   };
 
-  const busy = state === "uploading" || state === "fetching";
+  const busy = state === "uploading";
   const done = state === "success" && result != null;
 
   return (
@@ -82,12 +65,32 @@ export default function SeedPanel({ onStatusChange }: Props) {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-slate-800">Seed Database</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Load clinical trial data into ChromaDB</p>
+            <p className="text-xs text-slate-400 mt-0.5">Upload ClinicalTrials.gov JSON</p>
           </div>
         </div>
         {done && result && (
           <span className="badge-blue">{result.trials_ingested} trials</span>
         )}
+      </div>
+
+      {/* How to get the file */}
+      <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+        <p className="text-xs font-semibold text-blue-800 mb-1">How to get the data file</p>
+        <p className="text-xs text-blue-600 leading-relaxed">
+          Open the ClinicalTrials.gov API in your browser, save the response as{" "}
+          <code className="bg-blue-100 px-1 rounded font-mono">trials.json</code>, then upload it below.
+        </p>
+        <a
+          href="https://clinicaltrials.gov/api/v2/studies?filter.overallStatus=RECRUITING&query.cond=diabetes+OR+cancer+OR+hypertension+OR+heart+failure+OR+alzheimer&pageSize=100&format=json"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-blue-700 hover:text-blue-900 underline decoration-dotted"
+        >
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+          Open ClinicalTrials.gov API →
+        </a>
       </div>
 
       {/* Success state */}
@@ -101,54 +104,19 @@ export default function SeedPanel({ onStatusChange }: Props) {
               <p className="text-sm font-semibold text-emerald-800">Database ready</p>
             </div>
             <div className="flex gap-4 text-xs text-emerald-700">
-              <span className="flex items-center gap-1">
-                <span className="font-bold text-emerald-900">{result.trials_ingested}</span> trials ingested
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="font-bold text-emerald-900">{result.chunks_stored}</span> chunks stored
-              </span>
+              <span><span className="font-bold text-emerald-900">{result.trials_ingested}</span> trials ingested</span>
+              <span><span className="font-bold text-emerald-900">{result.chunks_stored}</span> chunks stored</span>
             </div>
           </div>
           <button onClick={handleReset} className="btn-secondary w-full text-xs">
-            Re-seed database
+            Upload a different file
           </button>
         </div>
       ) : (
         <>
-          {/* Primary: fetch from ClinicalTrials.gov */}
-          <button
-            onClick={handleFetch}
-            disabled={busy}
-            className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {state === "fetching" ? (
-              <>
-                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                </svg>
-                Fetching from ClinicalTrials.gov...
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Fetch from ClinicalTrials.gov
-              </>
-            )}
-          </button>
-
-          {/* Divider */}
-          <div className="relative flex items-center mb-4">
-            <div className="flex-1 h-px bg-slate-200" />
-            <span className="mx-3 text-xs text-slate-400 font-medium">or upload a file</span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
-
           {/* Drop zone */}
           <div
-            className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all duration-200 mb-3 ${
+            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 mb-3 ${
               dragOver ? "border-blue-400 bg-blue-50" :
               file ? "border-emerald-400 bg-emerald-50" :
               "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
@@ -169,10 +137,10 @@ export default function SeedPanel({ onStatusChange }: Props) {
               </div>
             ) : (
               <div className="flex flex-col items-center gap-1.5">
-                <svg className="w-6 h-6 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <svg className="w-7 h-7 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                <p className="text-xs text-slate-500">Drop <strong className="text-slate-700">trials.json</strong> or click to browse</p>
+                <p className="text-sm text-slate-500">Drop <strong className="text-slate-700">trials.json</strong> or click to browse</p>
               </div>
             )}
           </div>
@@ -186,12 +154,8 @@ export default function SeedPanel({ onStatusChange }: Props) {
             </div>
           )}
 
-          <button
-            onClick={handleUpload}
-            disabled={!file || busy}
-            className="btn-primary w-full"
-          >
-            {state === "uploading" ? (
+          <button onClick={handleUpload} disabled={!file || busy} className="btn-primary w-full">
+            {busy ? (
               <>
                 <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
