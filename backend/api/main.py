@@ -234,7 +234,7 @@ async def seed_database(
     file: UploadFile = File(...),
     x_api_key: str | None = Header(default=None),
 ):
-    """Accept a ClinicalTrials.gov JSON file and ingest into ChromaDB."""
+    """Accept a ClinicalTrials.gov JSON file, ingest into ChromaDB, and backup to S3."""
     _check_api_key(x_api_key)
 
     if not file.filename or not file.filename.endswith(".json"):
@@ -253,66 +253,29 @@ async def seed_database(
             detail="No studies found. File must be a ClinicalTrials.gov API v2 JSON response.",
         )
 
-    client = get_chroma_client()
-
-    # Clear existing collection for fresh ingest
     try:
-        client.delete_collection(COLLECTION_NAME)
-    except Exception:
-        pass
+        result = await _seed_from_data(studies)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    collection = get_or_create_collection(client)
-
-    batch_docs: list[str] = []
-    batch_metas: list[dict] = []
-    batch_ids: list[str] = []
-    trials_ingested = 0
-
-    for study in studies:
-        trial = _parse_trial(study)
-        if not trial:
-            continue
-
-        chunks = _splitter.split_text(trial["eligibility_criteria"])
-        if not chunks:
-            chunks = [trial["eligibility_criteria"][:600]]
-
-        meta = {
-            "nct_id": trial["nct_id"],
-            "title": trial["title"][:500],
-            "phase": trial["phase"] or "",
-            "sponsor": trial["sponsor"] or "",
-            "conditions": json.dumps(trial["conditions"][:10]),
-            "locations": json.dumps(trial["locations"][:5]),
-        }
-
-        for chunk_idx, chunk in enumerate(chunks):
-            doc_id = f"{trial['nct_id']}_chunk_{chunk_idx}"
-            batch_docs.append(chunk)
-            batch_metas.append(meta)
-            batch_ids.append(doc_id)
-
-        trials_ingested += 1
-
-    if not batch_docs:
-        raise HTTPException(status_code=400, detail="No valid trials with eligibility criteria found in file.")
-
-    # ChromaDB embeds automatically using DefaultEmbeddingFunction
-    BATCH = 100
-    for i in range(0, len(batch_docs), BATCH):
-        collection.add(
-            documents=batch_docs[i : i + BATCH],
-            metadatas=batch_metas[i : i + BATCH],
-            ids=batch_ids[i : i + BATCH],
-        )
-
-    logger.info("Seeded %d trials → %d chunks into ChromaDB", trials_ingested, len(batch_docs))
+    # Backup to S3 so App Runner can restore on next deploy
+    bucket = _s3_bucket()
+    s3_saved = False
+    if bucket:
+        try:
+            s3 = _get_s3_client()
+            s3.put_object(Bucket=bucket, Key="trials.json", Body=raw, ContentType="application/json")
+            s3_saved = True
+            logger.info("trials.json backed up to S3 bucket '%s'", bucket)
+        except Exception as e:
+            logger.warning("S3 backup failed (non-fatal): %s", e)
 
     return {
         "status": "ok",
-        "trials_ingested": trials_ingested,
-        "chunks_stored": len(batch_docs),
-        "message": f"Successfully ingested {trials_ingested} trials into ChromaDB.",
+        "trials_ingested": result["trials_ingested"],
+        "chunks_stored": result["chunks_stored"],
+        "s3_backup": s3_saved,
+        "message": f"Ingested {result['trials_ingested']} trials into ChromaDB{' and backed up to S3' if s3_saved else ''}.",
     }
 
 
@@ -430,14 +393,96 @@ async def get_config():
     }
 
 
+def _get_s3_client():
+    import boto3
+    return boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
+
+
+def _s3_bucket() -> str | None:
+    return os.environ.get("S3_BUCKET_NAME")
+
+
+async def _seed_from_data(studies: list) -> dict:
+    """Shared seeding logic — embeds studies into ChromaDB. Returns result dict."""
+    client_db = get_chroma_client()
+    try:
+        client_db.delete_collection(COLLECTION_NAME)
+    except Exception:
+        pass
+    collection = get_or_create_collection(client_db)
+
+    batch_docs: list[str] = []
+    batch_metas: list[dict] = []
+    batch_ids: list[str] = []
+    trials_ingested = 0
+
+    for study in studies:
+        trial = _parse_trial(study)
+        if not trial:
+            continue
+        chunks = _splitter.split_text(trial["eligibility_criteria"])
+        if not chunks:
+            chunks = [trial["eligibility_criteria"][:600]]
+        meta = {
+            "nct_id": trial["nct_id"],
+            "title": trial["title"][:500],
+            "phase": trial["phase"] or "",
+            "sponsor": trial["sponsor"] or "",
+            "conditions": json.dumps(trial["conditions"][:10]),
+            "locations": json.dumps(trial["locations"][:5]),
+        }
+        for chunk_idx, chunk in enumerate(chunks):
+            batch_docs.append(chunk)
+            batch_metas.append(meta)
+            batch_ids.append(f"{trial['nct_id']}_chunk_{chunk_idx}")
+        trials_ingested += 1
+
+    if not batch_docs:
+        raise ValueError("No valid trials with eligibility criteria found.")
+
+    BATCH = 100
+    for i in range(0, len(batch_docs), BATCH):
+        collection.add(
+            documents=batch_docs[i: i + BATCH],
+            metadatas=batch_metas[i: i + BATCH],
+            ids=batch_ids[i: i + BATCH],
+        )
+
+    logger.info("Seeded %d trials → %d chunks into ChromaDB", trials_ingested, len(batch_docs))
+    return {"trials_ingested": trials_ingested, "chunks_stored": len(batch_docs)}
+
+
 @app.on_event("startup")
-async def log_startup_state():
-    """Log ChromaDB state on startup."""
+async def auto_seed_from_s3():
+    """On startup, if ChromaDB is empty, restore from S3 trials.json."""
     count = collection_count()
     if count > 0:
         logger.info("ChromaDB ready — %d chunks loaded", count)
-    else:
-        logger.info("ChromaDB is empty — upload a trials.json via /admin/seed to populate")
+        return
+
+    bucket = _s3_bucket()
+    if not bucket:
+        logger.info("ChromaDB empty — set S3_BUCKET_NAME and upload trials.json via UI to seed")
+        return
+
+    logger.info("ChromaDB empty — attempting restore from S3 bucket '%s'", bucket)
+    try:
+        s3 = _get_s3_client()
+        obj = s3.get_object(Bucket=bucket, Key="trials.json")
+        data = json.loads(obj["Body"].read())
+        studies = data.get("studies", [])
+        if not studies:
+            logger.warning("S3 trials.json has no studies — upload a fresh file via UI")
+            return
+        result = await _seed_from_data(studies)
+        logger.info("Auto-restored from S3: %d trials → %d chunks", result["trials_ingested"], result["chunks_stored"])
+    except s3.exceptions.ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            logger.info("No trials.json found in S3 yet — upload via UI to seed")
+        else:
+            logger.warning("S3 auto-restore failed: %s", e)
+    except Exception as e:
+        logger.warning("S3 auto-restore failed: %s", e)
 
 
 @app.get("/health")
