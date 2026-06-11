@@ -2,9 +2,7 @@ version: "3.9"
 
 services:
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: 692859918209.dkr.ecr.us-east-1.amazonaws.com/trialmatch-backend:latest
     ports:
       - "80:8000"
     environment:
